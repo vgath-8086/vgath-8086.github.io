@@ -1,0 +1,4 @@
+User-Agent: *
+Allow: /
+
+Sitemap: https://vgath-8086.github.io/sitemap.xml
