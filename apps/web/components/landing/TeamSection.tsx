@@ -1,18 +1,44 @@
+'use client';
+
+import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 
 interface Member {
   name: string;
   username: string;
+  image?: string;
 }
 
 const TEAM: Member[] = [
-  { name: 'Sidali Assoul', username: 'stormsidali2001' },
+  { name: 'Sidali Assoul', username: 'stormsidali2001', image: '/team/stormsidali2001.jpg' },
   { name: 'idrisT11', username: 'idrisT11' },
   { name: 'Gaouaoui Kamel', username: 'Scorpion197' },
   { name: 'anis77-collab', username: 'anis77-collab' },
   { name: 'bensalem14', username: 'bensalem14' },
   { name: 'yassineoo', username: 'yassineoo' },
 ];
+
+function Avatar({ name, src }: { name: string; src: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="flex h-16 w-16 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-xl font-semibold text-zinc-300">
+        {name[0].toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    // ponytail: plain <img> — next/image is unoptimized under output:'export' anyway
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={name}
+      loading="lazy"
+      className="h-16 w-16 rounded-full border border-zinc-700 object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export function TeamSection() {
   return (
@@ -42,8 +68,9 @@ export function TeamSection() {
             href={`https://github.com/${m.username}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-4 text-center hover:border-brand-700 transition-colors"
+            className="flex flex-col items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-4 text-center hover:border-brand-700 transition-colors"
           >
+            <Avatar name={m.name} src={m.image ?? `https://github.com/${m.username}.png?size=128`} />
             {m.name === m.username ? (
               <span className="text-sm font-medium text-zinc-200">@{m.name}</span>
             ) : (
