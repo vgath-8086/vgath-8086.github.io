@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface Props {
@@ -26,9 +27,20 @@ export function Hero({ exampleCount }: Props) {
           {exampleCount} Examples
         </span>
       </div>
-      <Link href="/ide">
-        <Button size="lg">Open IDE</Button>
-      </Link>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <Link href="/ide">
+          <Button size="lg">Open IDE</Button>
+        </Link>
+        <a
+          href="https://github.com/vgath-8086/8086-Online-IDE-SBA"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Button size="lg" variant="outline">
+            <Star className="h-4 w-4" /> Star on GitHub
+          </Button>
+        </a>
+      </div>
     </section>
   );
 }

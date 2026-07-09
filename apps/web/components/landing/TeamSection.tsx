@@ -7,10 +7,16 @@ interface Member {
   name: string;
   username: string;
   image?: string;
+  url?: string;
 }
 
 const TEAM: Member[] = [
-  { name: 'Sidali Assoul', username: 'stormsidali2001', image: '/team/stormsidali2001.jpg' },
+  {
+    name: 'Sidali Assoul',
+    username: 'stormsidali2001',
+    image: '/team/stormsidali2001.jpg',
+    url: 'https://sidaliassoul.com/',
+  },
   { name: 'idrisT11', username: 'idrisT11' },
   { name: 'Gaouaoui Kamel', username: 'Scorpion197' },
   { name: 'anis77-collab', username: 'anis77-collab' },
@@ -65,9 +71,9 @@ export function TeamSection() {
         {TEAM.map(m => (
           <a
             key={m.username}
-            href={`https://github.com/${m.username}`}
+            href={m.url ?? `https://github.com/${m.username}`}
             target="_blank"
-            rel="noopener noreferrer"
+            rel={m.url ? 'noopener' : 'noopener noreferrer'}
             className="flex flex-col items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-4 text-center hover:border-brand-700 transition-colors"
           >
             <Avatar name={m.name} src={m.image ?? `https://github.com/${m.username}.png?size=128`} />
