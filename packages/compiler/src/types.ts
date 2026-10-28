@@ -6,7 +6,7 @@ export type OperandType =
   | 'RX' | 'RL' | 'RS'
   | 'MU' | 'MB' | 'MW'
   | 'OFF' | 'LBL' | 'DIS' | 'INS'
-  | 'DUP' | 'DUPSIZE' | '';
+  | 'DUP' | 'DUPSIZE' | 'SEG' | '';
 
 export interface Operand {
   name: string;
@@ -15,8 +15,8 @@ export interface Operand {
 
 export type ExpressionType = 'INST' | 'VAR' | 'NULL' | 'MACRO' | 'macro definition' | null;
 export type InstructionType = 'prePropIns' | 'InsSIM' | 'DB' | null;
-export type VariableClass = 'DB' | 'DW' | 'DU' | null;
-export type VariableSize = 'BYTE' | 'WORD' | 'UNKNOWN' | null;
+export type VariableClass = 'DB' | 'DW' | 'DD' | 'DU' | null;
+export type VariableSize = 'BYTE' | 'WORD' | 'DWORD' | 'UNKNOWN' | null;
 
 export interface LexicalLine {
   good: boolean;
@@ -29,6 +29,14 @@ export interface LexicalLine {
   variableClass: VariableClass;
   operands: Operand[];
   index: number | null;
+  segmentName?: string | null;
+}
+
+export interface SegmentEntry {
+  name: string;
+  base: number;
+  size: number;
+  isStack?: boolean;
 }
 
 export interface VariableEntry {
@@ -86,6 +94,16 @@ export interface PreProcessorResult {
   origin: number;
   message: CompilerErrorCode | '';
   errorLine: number | null;
+  segments?: SegmentEntry[];
+  entryPointLabel?: string | null;
+  initialRegs?: {
+    cs?: number;
+    ip?: number;
+    ss?: number;
+    sp?: number;
+    ds?: number;
+    es?: number;
+  };
 }
 
 export interface PostLinkState {
@@ -102,4 +120,13 @@ export interface CompilerResult {
   finalView: FinalViewLine[] | null;
   varArray: VariableEntry[] | null;
   labelArray: LabelEntry[] | null;
+  segments?: SegmentEntry[];
+  initialRegs?: {
+    cs?: number;
+    ip?: number;
+    ss?: number;
+    sp?: number;
+    ds?: number;
+    es?: number;
+  };
 }

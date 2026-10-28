@@ -1,5 +1,5 @@
 import type { IEncoder } from '../interfaces/i-encoder.js';
-import type { LexicalLine, VariableEntry, LabelEntry, FinalViewLine, PostLinkState } from '../types.js';
+import type { LexicalLine, VariableEntry, LabelEntry, FinalViewLine, PostLinkState, SegmentEntry } from '../types.js';
 import { FLOW_INSTRUCTIONS, LONG_FLOW_INSTRUCTIONS } from '@emu8086/shared';
 import { CompilerErrorCode }   from '../error-codes.js';
 import { generateVariable }    from './generate-variable.js';
@@ -12,8 +12,19 @@ export class Linkage {
   private varArray:   VariableEntry[]  = [];
   private labelArray: LabelEntry[]     = [];
   private finalArray: FinalViewLine[]  = [];
+  private segments:   SegmentEntry[]   = [];
+  private entryPointLabel: string | null = null;
+  private initialRegs: { cs?: number; ip?: number; ss?: number; sp?: number; ds?: number; es?: number } | null = null;
 
   constructor(private readonly encoder: IEncoder) {}
+
+  getOrigin(): number | null {
+    return this.origine;
+  }
+
+  getInitialRegs(): { cs?: number; ip?: number; ss?: number; sp?: number; ds?: number; es?: number } | null {
+    return this.initialRegs;
+  }
 
   // ── Public entry points ──────────────────────────────────────────────────
 
@@ -22,15 +33,23 @@ export class Linkage {
     varArray: VariableEntry[],
     labelArray: LabelEntry[],
     origin: number,
+    segments?: SegmentEntry[],
+    entryPointLabel?: string | null,
   ): FinalViewLine[] {
-    this.origine    = origin;
-    this.varArray   = varArray;
-    this.labelArray = labelArray;
-    this.finalArray = [];
+    this.origine         = origin;
+    this.varArray        = varArray;
+    this.labelArray      = labelArray;
+    this.segments        = segments ?? [];
+    this.entryPointLabel = entryPointLabel ?? null;
+    this.initialRegs     = null;
+    this.finalArray      = [];
 
     this.initFinalView(lexicalView);
     let passes = 0;
     while (this.runPass(lexicalView) && passes < 1000) passes++;
+
+    this.calculateFinalProgramLayout(lexicalView);
+
     return this.finalArray;
   }
 
@@ -82,38 +101,124 @@ export class Linkage {
   // ── Iterative address-resolution pass ────────────────────────────────────
 
   private runPass(lexicalView: LexicalLine[]): boolean {
-    let virtualIP    = this.origine;
     let shouldReloop = false;
+    const hasSegments = this.segments.length > 0;
+
+    if (!hasSegments) {
+      let virtualIP = this.origine;
+      for (let i = 0; i < lexicalView.length; i++) {
+        const line = lexicalView[i];
+
+        if (line.label !== null) {
+          for (const lbl of line.label as string[]) {
+            if (this.setLabelAddr(lbl, virtualIP)) shouldReloop = true;
+          }
+        }
+
+        if (line.expressionType === 'VAR') {
+          this.finalArray[i].instructionAddr = virtualIP;
+          if (this.setVarAddr(line.variableName, virtualIP)) shouldReloop = true;
+          virtualIP += this.finalArray[i].instructionSize;
+
+        } else if (line.expressionType === 'INST') {
+          const resolved = FLOW_INSTRUCTIONS.includes(line.instName ?? '')
+            ? this.resolveJmp(line, virtualIP)
+            : this.resolveGeneral(line);
+
+          this.finalArray[i].lexicalLine     = resolved.lexicalLine;
+          this.finalArray[i].resolvedLine    = resolved.strLine.trim();
+          this.finalArray[i].opcodes         = this.encoder.encode(resolved.strLine.trim());
+          this.finalArray[i].instructionSize = this.finalArray[i].opcodes.length;
+          this.finalArray[i].instructionAddr = virtualIP;
+          virtualIP += this.finalArray[i].instructionSize;
+        }
+      }
+      return shouldReloop;
+    }
+
+    // Segmented layout
+    const segOffsets = new Map<string, number>();
+    for (const s of this.segments) segOffsets.set(s.name, 0);
+
+    const segMap = new Map<string, SegmentEntry>();
+    for (const s of this.segments) segMap.set(s.name, s);
 
     for (let i = 0; i < lexicalView.length; i++) {
       const line = lexicalView[i];
+      const segName = line.segmentName ?? (this.segments[0]?.name ?? '');
+      const seg = segMap.get(segName) ?? this.segments[0];
+      const offset = segOffsets.get(seg.name) ?? 0;
+      const physicalAddr = (seg.base << 4) + offset;
 
       if (line.label !== null) {
         for (const lbl of line.label as string[]) {
-          if (this.setLabelAddr(lbl, virtualIP)) shouldReloop = true;
+          if (this.setLabelAddr(lbl, offset)) shouldReloop = true;
         }
       }
 
       if (line.expressionType === 'VAR') {
-        this.finalArray[i].instructionAddr = virtualIP;
-        if (this.setVarAddr(line.variableName, virtualIP)) shouldReloop = true;
-        virtualIP += this.finalArray[i].instructionSize;
+        this.finalArray[i].instructionAddr = physicalAddr;
+        if (this.setVarAddr(line.variableName, offset)) shouldReloop = true;
+        const newOffset = offset + this.finalArray[i].instructionSize;
+        segOffsets.set(seg.name, newOffset);
+        seg.size = Math.max(seg.size, newOffset);
 
       } else if (line.expressionType === 'INST') {
         const resolved = FLOW_INSTRUCTIONS.includes(line.instName ?? '')
-          ? this.resolveJmp(line, virtualIP)
+          ? this.resolveJmp(line, offset)
           : this.resolveGeneral(line);
 
         this.finalArray[i].lexicalLine     = resolved.lexicalLine;
         this.finalArray[i].resolvedLine    = resolved.strLine.trim();
         this.finalArray[i].opcodes         = this.encoder.encode(resolved.strLine.trim());
         this.finalArray[i].instructionSize = this.finalArray[i].opcodes.length;
-        this.finalArray[i].instructionAddr = virtualIP;
-        virtualIP += this.finalArray[i].instructionSize;
+        this.finalArray[i].instructionAddr = physicalAddr;
+        const newOffset = offset + this.finalArray[i].instructionSize;
+        segOffsets.set(seg.name, newOffset);
+        seg.size = Math.max(seg.size, newOffset);
       }
     }
 
     return shouldReloop;
+  }
+
+  private calculateFinalProgramLayout(lexicalView: LexicalLine[]): void {
+    if (this.segments.length === 0) return;
+
+    let codeSeg = this.segments.find(s => !s.isStack && s.name.toUpperCase() === 'CODE')
+               ?? this.segments.find(s => !s.isStack && s.name.toUpperCase() !== 'DATA')
+               ?? this.segments[0];
+
+    let entryIP = 0;
+
+    if (this.entryPointLabel) {
+      const lbl = this.labelArray.find(l => l.labelName?.toUpperCase() === this.entryPointLabel?.toUpperCase());
+      if (lbl) {
+        entryIP = lbl.addr;
+        const lineWithLbl = lexicalView.find(l => l.label?.some(x => x.toUpperCase() === this.entryPointLabel?.toUpperCase()));
+        if (lineWithLbl?.segmentName) {
+          const segForLbl = this.segments.find(s => s.name.toUpperCase() === lineWithLbl.segmentName?.toUpperCase());
+          if (segForLbl) codeSeg = segForLbl;
+        }
+      }
+    }
+
+    const stackSeg = this.segments.find(s => s.isStack);
+    const ss = stackSeg ? stackSeg.base : 0x700;
+    const sp = stackSeg ? (stackSeg.size > 0 ? stackSeg.size : 0x200) : 0xfffe;
+
+    const dataSeg = this.segments.find(s => s.name.toUpperCase() === 'DATA');
+    const ds = dataSeg ? dataSeg.base : undefined;
+
+    this.initialRegs = {
+      cs: codeSeg.base,
+      ip: entryIP,
+      ss,
+      sp,
+      ds,
+    };
+
+    this.origine = (codeSeg.base << 4) + entryIP;
   }
 
   // ── Operand resolution: general instructions ─────────────────────────────

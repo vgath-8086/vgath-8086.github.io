@@ -2,7 +2,7 @@ import type { Memory }               from './cpu/memory.js';
 import type { Registers }            from './cpu/registers.js';
 import type { ConsoleW }             from './console/console-w.js';
 import type { CpuState }             from './cpu/cpu-state.js';
-import { AX_REG, DX_REG }           from './constants.js';
+import { AX_REG, DX_REG, DS_REG } from './constants.js';
 import { XL }                        from './constants.js';
 import { SEG_OVER_PREF }             from './opcodes.js';
 import { CpuContext }                from './cpu/cpu-context.js';
@@ -36,9 +36,11 @@ export class Processor {
   set pause(v: boolean)       { this.state.pause = v; }
 
   get int21_01(): boolean     { return this.ctx.int21_01; }
+  get isHalted(): boolean     { return this.ctx.halted; }
+  resetHalt(): void           { this.ctx.halted = false; }
 
   resetMemory(): void    { this.RAM.reset(); }
-  resetRegisters(): void { this.register.reset(); }
+  resetRegisters(): void { this.register.reset(); this.resetHalt(); }
 
   /** Routes a buffered key to the active INT 21h handler (01h for single char, 0Ah for buffered input). */
   handleKeyInput(): void {
@@ -50,7 +52,8 @@ export class Processor {
       cnsl.keyReady = false;
     }
     if (ctx.int21_0a && cnsl.keyReady) {
-      const dxAdr     = this.register.readReg(DX_REG);
+      const ds        = this.register.readReg(DS_REG);
+      const dxAdr     = (ds << 4) + this.register.readReg(DX_REG);
       const maxChars  = this.RAM.readByte(dxAdr);
       if (ctx.readNum <= maxChars) {
         const keyCode  = cnsl.key!.charCodeAt(0) & 0x00FF;

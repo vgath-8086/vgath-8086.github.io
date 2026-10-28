@@ -4,7 +4,8 @@
 
 export const INSTRUCTIONS: readonly string[] = [
   // Data / assembler directives
-  'DB', 'DW', 'DUP', 'ORG', 'EQU', 'DEFINE',
+  'DB', 'DW', 'DD', 'DUP', 'ORG', 'EQU', 'DEFINE',
+  'SEGMENT', 'ENDS', 'ASSUME', 'END', 'PTR', 'NEAR', 'FAR',
   // Macro directives
   'MACRO', 'ENDM', 'LOCAL', 'PROC', 'ENDP',
   // Data movement

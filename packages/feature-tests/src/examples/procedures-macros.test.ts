@@ -4,7 +4,17 @@ import { getExample, runExample, expectCategoryCovered } from './test-helpers.js
 
 describe('Procedures & Macros examples', () => {
   it('covers every example in this category', () => {
-    expectCategoryCovered('Procedures & Macros', ['proc-call-ret', 'macro-local']);
+    expectCategoryCovered('Procedures & Macros', ['proc-call-ret', 'macro-local', 'masm-segments']);
+  });
+
+  describe('MASM Segments & Procedures', () => {
+    it('executes traditional MASM segmented program', async () => {
+      const { source } = getExample('masm-segments');
+      const { controller, done } = await runExample(source);
+      expect(done).toBe(true);
+      const reg = controller.processor.register;
+      expect(reg.readReg(AX_REG)).toBe(0x4C00); // Exited via INT 21H with AX=4C00H
+    });
   });
 
   describe('PROC / ENDP', () => {

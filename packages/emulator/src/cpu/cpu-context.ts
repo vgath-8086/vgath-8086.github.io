@@ -20,6 +20,7 @@ export class CpuContext {
   int21_01: boolean = false;
   int21_0a: boolean = false;
   readNum: number = 1;
+  halted: boolean = false;
 
   constructor(reg: IRegisters, ram: IMemory, cnsl: IConsole) {
     this.reg = reg;

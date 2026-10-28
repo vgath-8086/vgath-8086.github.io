@@ -41,6 +41,7 @@ const program: LoadableProgram = {
   instructions: result.finalView
     .filter((line: FinalViewLine) => line.executableLine)
     .map((line: FinalViewLine) => ({ addr: line.instructionAddr, opcodes: line.opcodes })),
+  initialRegs: result.initialRegs,
 };
 
 const keyProvider = new NodeKeyProvider();

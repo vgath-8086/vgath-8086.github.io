@@ -1281,6 +1281,43 @@ again:
     jnz again
 ENDM`,
   },
+
+  {
+    id: 'masm-segments',
+    name: 'MASM Segments & Procedures',
+    category: 'Procedures & Macros',
+    description: 'Traditional MASM program with STACK, DATA, and CODE segments, ASSUME directive, <name> PROC NEAR / ENDP, and INT 21H termination.',
+    source: `STACK0 SEGMENT PARA STACK 'STACK'
+    DW 100H DUP(?)
+STACK0 ENDS
+
+DATA SEGMENT
+    PARAM DW 1234H
+    RESULT DW ?
+DATA ENDS
+
+CODE SEGMENT
+    ASSUME CS:CODE, DS:DATA, SS:STACK0
+
+START:
+    MOV AX, DATA
+    MOV DS, AX
+
+    MOV AX, PARAM
+    CALL COMPUTE
+    MOV RESULT, AX
+
+    MOV AX, 4C00H
+    INT 21H
+
+COMPUTE PROC NEAR
+    ADD AX, 1111H
+    RET
+COMPUTE ENDP
+
+CODE ENDS
+END START`,
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

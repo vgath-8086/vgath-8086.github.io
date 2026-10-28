@@ -261,7 +261,7 @@ export default function IdePage() {
   const regs = useRegisters(controller, tick);
   const prevRegs = controller && mode !== 'edit' ? formatRegState(controller.getRegStateAt((controller.t || 0) - 1)) : undefined;
   const consoleState = useConsoleOutput(controller, tick);
-  const { currentLineIdx } = useSourceHighlight(finalView, regs.ipNum);
+  const { currentLineIdx } = useSourceHighlight(finalView, regs.ipNum, regs.csNum);
 
   const handleBreakpointToggle = useCallback((lineIdx: number) => {
     if (mode === 'edit') return; // no compiled program yet — nothing to break on
@@ -322,6 +322,7 @@ export default function IdePage() {
       instructions: fv
         .filter((l: FinalViewLine) => l.executableLine)
         .map((l: FinalViewLine) => ({ addr: l.instructionAddr, opcodes: l.opcodes })),
+      initialRegs: result.initialRegs,
     };
 
     let ctrl = controllerRef.current;

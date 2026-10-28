@@ -20,6 +20,7 @@ export function useRegisters(controller: EmulatorController | null, tick: number
         sp: '0000', bp: '0000', si: '0000', di: '0000',
         ip: '0000', flags: '0000',
         ipNum: 0,
+        csNum: 0,
       };
     }
     const r = controller.processor.register;
@@ -39,6 +40,7 @@ export function useRegisters(controller: EmulatorController | null, tick: number
       ip: toHex4(r.readReg(IP_REG)),
       flags: toHex4(r.readReg(FLAG_REG)),
       ipNum: r.readReg(IP_REG),
+      csNum: r.readReg(CS_REG),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller, tick]);

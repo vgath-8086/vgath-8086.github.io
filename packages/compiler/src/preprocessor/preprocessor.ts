@@ -1,4 +1,4 @@
-import type { LexicalLine, Operand, VariableEntry, LabelEntry, PreProcessorResult, VariableSize } from '../types.js';
+import type { LexicalLine, Operand, VariableEntry, LabelEntry, PreProcessorResult, VariableSize, SegmentEntry } from '../types.js';
 import { MacroExpander } from './macro-expander.js';
 import { CompilerErrorCode } from '../error-codes.js';
 
@@ -6,6 +6,8 @@ export class PreProcessor {
   private lexicalView: LexicalLine[] = [];
   private variables: VariableEntry[] = [];
   private labels: LabelEntry[] = [];
+  private segments: SegmentEntry[] = [];
+  private entryPointLabel: string | null = null;
   private origineValue: number = 0;
   private message: CompilerErrorCode | '' = '';
   private errorLine: number | null = null;
@@ -31,6 +33,7 @@ export class PreProcessor {
       lexicalView: this.lexicalView,
       varArray: this.variables,
       labelArray: this.labels,
+      segments: this.segments,
       origin: this.origineValue,
       message: this.message,
       errorLine: this.errorLine,
@@ -41,11 +44,14 @@ export class PreProcessor {
     this.lexicalView = lexicalView;
     this.variables   = [];
     this.labels      = [];
+    this.segments    = [];
+    this.entryPointLabel = null;
     this.origineValue = 0;
     this.message     = '';
     this.errorLine   = null;
 
     if (this.executeDefine()          === -1) return this.buildErrorResult();
+    if (this.manageSegments()         === -1) return this.buildErrorResult();
     this.normaliseAllOperands();
     if (this.expandMacros()           === -1) return this.buildErrorResult();
     if (this.manageProcedures()       === -1) return this.buildErrorResult();
@@ -59,6 +65,8 @@ export class PreProcessor {
       lexicalView: this.lexicalView,
       varArray: this.variables,
       labelArray: this.labels,
+      segments: this.segments,
+      entryPointLabel: this.entryPointLabel,
       origin: this.origineValue,
       message: '',
       errorLine: null,
@@ -70,7 +78,7 @@ export class PreProcessor {
   private executeDefine(): number {
     for (let i = 0; i < this.lexicalView.length; i++) {
       const line = this.lexicalView[i];
-      if (line.expressionType !== 'INST' || line.instName !== 'DEFINE') continue;
+      if (line.expressionType !== 'INST' || (line.instName !== 'DEFINE' && line.instName !== 'EQU')) continue;
 
       if (line.operands.length !== 2) {
         this.setError(CompilerErrorCode.INVALID_OPERANDS_FOR_DEFINE, line.index);
@@ -94,6 +102,127 @@ export class PreProcessor {
       i--;
     }
     return 0;
+  }
+
+  // ── Stage 1.5: Segment handling ──────────────────────────────────────────
+
+  private manageSegments(): number {
+    this.segments = [];
+    this.entryPointLabel = null;
+
+    let currentSeg: string | null = null;
+    const segMap = new Map<string, SegmentEntry>();
+    const segOrder: string[] = [];
+
+    for (let i = 0; i < this.lexicalView.length; i++) {
+      const line = this.lexicalView[i];
+
+      if (line.expressionType === 'INST') {
+        const name = line.instName ?? '';
+
+        if (name === 'TITLE' || name === '.MODEL' || name === 'ASSUME') {
+          line.expressionType = 'NULL';
+          line.operands = [];
+          continue;
+        }
+
+        if (name === '.STACK') {
+          currentSeg = 'STACK';
+          if (!segMap.has('STACK')) {
+            const sizeVal = line.operands[0]?.name ? parseInt(line.operands[0].name) : 1024;
+            segMap.set('STACK', { name: 'STACK', base: 0, size: sizeVal, isStack: true });
+            segOrder.push('STACK');
+          }
+          line.expressionType = 'NULL';
+          line.operands = [];
+          continue;
+        }
+
+        if (name === '.DATA') {
+          currentSeg = 'DATA';
+          if (!segMap.has('DATA')) {
+            segMap.set('DATA', { name: 'DATA', base: 0, size: 0, isStack: false });
+            segOrder.push('DATA');
+          }
+          line.expressionType = 'NULL';
+          line.operands = [];
+          continue;
+        }
+
+        if (name === '.CODE') {
+          currentSeg = 'CODE';
+          if (!segMap.has('CODE')) {
+            segMap.set('CODE', { name: 'CODE', base: 0, size: 0, isStack: false });
+            segOrder.push('CODE');
+          }
+          line.expressionType = 'NULL';
+          line.operands = [];
+          continue;
+        }
+
+        if (name === 'SEGMENT') {
+          const segName = line.operands[0]?.name?.toUpperCase() ?? 'SEG';
+          currentSeg = segName;
+          const isStack = line.operands.some(op => op.name.toUpperCase() === 'STACK' || op.name.toUpperCase() === "'STACK'");
+          if (!segMap.has(segName)) {
+            segMap.set(segName, {
+              name: segName,
+              base: 0,
+              size: 0,
+              isStack: isStack || segName.startsWith('STACK'),
+            });
+            segOrder.push(segName);
+          }
+          line.expressionType = 'NULL';
+          line.operands = [];
+          continue;
+        }
+
+        if (name === 'ENDS') {
+          currentSeg = null;
+          line.expressionType = 'NULL';
+          line.operands = [];
+          continue;
+        }
+
+        if (name === 'END') {
+          if (line.operands.length > 0) {
+            this.entryPointLabel = line.operands[0].name.toUpperCase();
+          }
+          line.expressionType = 'NULL';
+          line.operands = [];
+          for (let j = i + 1; j < this.lexicalView.length; j++) {
+            this.lexicalView[j].expressionType = 'NULL';
+            this.lexicalView[j].operands = [];
+          }
+          break;
+        }
+      }
+
+      if (currentSeg) {
+        line.segmentName = currentSeg;
+      }
+    }
+
+    if (segOrder.length > 0) {
+      let nextBase = 0x0100;
+      for (const sName of segOrder) {
+        const seg = segMap.get(sName)!;
+        seg.base = nextBase;
+        nextBase += 0x0100;
+      }
+      this.segments = segOrder.map(n => segMap.get(n)!);
+    }
+
+    return 0;
+  }
+
+  private hasSegment(name: string): boolean {
+    return this.segments.some(s => s.name === name.toUpperCase());
+  }
+
+  private getSegment(name: string): SegmentEntry | undefined {
+    return this.segments.find(s => s.name === name.toUpperCase());
   }
 
   // ── Stage 2: text/operand normalisation ─────────────────────────────────
@@ -260,6 +389,7 @@ export class PreProcessor {
         let size: VariableSize = null;
         if (/DB/.test(line.variableClass ?? ''))      size = 'BYTE';
         else if (/DW/.test(line.variableClass ?? '')) size = 'WORD';
+        else if (/DD/.test(line.variableClass ?? '')) size = 'DWORD';
         else if (/DU/.test(line.variableClass ?? '')) size = 'UNKNOWN';
 
         this.variables.push({ line: line.index, varName: line.variableName!.toUpperCase(), size, addr: 0 });
@@ -287,15 +417,25 @@ export class PreProcessor {
 
   private manageVariables(): number {
     for (const line of this.lexicalView) {
+      if (line.expressionType === 'NULL') continue;
       for (const op of line.operands) {
-        if (/VAR/.test(op.type)) {
-          const varEntry = this.variables.find(v => v.varName?.toUpperCase() === op.name.toUpperCase());
+        if (/VAR|SEG/.test(op.type)) {
+          let lookupName = op.name.toUpperCase();
+          if (lookupName === '@DATA') lookupName = 'DATA';
+          if (lookupName === '@CODE') lookupName = 'CODE';
+          if (lookupName === '@STACK') lookupName = 'STACK';
+
+          const varEntry = this.variables.find(v => v.varName?.toUpperCase() === lookupName);
           if (varEntry) {
             op.type = /BYTE/.test(varEntry.size ?? '') ? 'VAR8'
               : /WORD/.test(varEntry.size ?? '')    ? 'VAR16'
               : 'VARU';
-          } else if (this.hasLabel(op.name)) {
+          } else if (this.hasLabel(lookupName)) {
             op.type = 'LBL';
+          } else if (this.hasSegment(lookupName)) {
+            const seg = this.getSegment(lookupName)!;
+            op.name = seg.base.toString(10);
+            op.type = 'INT';
           } else {
             this.setError(CompilerErrorCode.VARIABLE_OR_LABEL_MISSING, line.index);
             return -1;

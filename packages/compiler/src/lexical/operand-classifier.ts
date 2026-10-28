@@ -17,7 +17,11 @@ export class OperandClassifier {
   constructor(private readonly memValidator: MemoryValidator) {}
 
   typeOf(str: string): OperandType {
-    const v = str.trim();
+    let v = str.trim().replace(/\bptr\b/ig, '').trim();
+    const varInBracket = v.match(/^\[\s*([a-zA-Z_]\w*)\s*\]$/);
+    if (varInBracket && this.isLegalVarName(varInBracket[1])) {
+      v = varInBracket[1];
+    }
     if (this.isNumber(v))                                 return 'INT';
     if (SEGMENT_REGISTERS.includes(v.toUpperCase()))      return 'RS';
     if (BYTE_REGISTERS.includes(v.toUpperCase()))         return 'RL';
@@ -31,9 +35,13 @@ export class OperandClassifier {
   }
 
   isValid(operand: string): { ok: boolean; message: CompilerErrorCode | '' } {
-    operand = operand.trim();
+    operand = operand.trim().replace(/\bptr\b/ig, '').trim();
 
     if (ALL_REGISTERS.includes(operand.toUpperCase()))
+      return { ok: true, message: '' };
+
+    const varInBracket = operand.match(/^\[\s*([a-zA-Z_]\w*)\s*\]$/);
+    if (varInBracket && this.isLegalVarName(varInBracket[1]))
       return { ok: true, message: '' };
 
     if (/\[/.test(operand)) {
@@ -71,7 +79,7 @@ export class OperandClassifier {
   isLegalVarName(str: string): boolean {
     str = str.toUpperCase().trim();
     return !(
-      /\W/.test(str) || /^\d|^\-\-/.test(str) || /\w\s\w/.test(str) ||
+      /[^A-Z0-9_@]/.test(str) || /^\d|^\-\-/.test(str) || /\w\s\w/.test(str) ||
       INSTRUCTIONS.includes(str) || ALL_REGISTERS.includes(str) || str === ''
     );
   }
@@ -85,6 +93,7 @@ export class OperandClassifier {
   /** True if str matches any 8086 numeric literal form (hex/bin/decimal/char). */
   private isNumericLiteral(str: string | null): boolean {
     if (str === null) return false;
+    if (str.trim() === '?') return true;
     const v = str.replace(/(?<=\-)\s*(?=\w)/g, '');
     return /^0x[a-f0-9]+$|^0[A-F][A-Fa-f0-9]*h$|^\d+[A-Fa-f0-9]*h$|^[0-1]+(b$)|^\d+$|^"."$|^'.'$/i
       .test(str[0] === '-' ? v.replace('-', '') : str);

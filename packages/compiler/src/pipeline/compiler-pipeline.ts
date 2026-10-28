@@ -27,19 +27,29 @@ export class CompilerPipeline {
     if (!synt.good) return makeError(synt.index, synt.message);
 
     const finalView = this.linker.link(
-      prep.lexicalView, prep.varArray, prep.labelArray, prep.origin,
+      prep.lexicalView, prep.varArray, prep.labelArray, prep.origin, prep.segments, prep.entryPointLabel,
     );
     const postLink = this.linker.verify(finalView);
     if (!postLink.good) return makeError(postLink.errorLine, postLink.message);
 
+    const origin = (this.linker.getOrigin && this.linker.getOrigin() !== null)
+      ? this.linker.getOrigin()!
+      : prep.origin;
+
+    const initialRegs = (this.linker.getInitialRegs && this.linker.getInitialRegs() !== null)
+      ? this.linker.getInitialRegs()!
+      : prep.initialRegs;
+
     return {
       status:    true,
-      origin:    prep.origin,
+      origin,
       message:   '',
       errorLine: null,
       finalView,
       varArray:  prep.varArray,
       labelArray: prep.labelArray,
+      segments:   prep.segments,
+      initialRegs,
     };
   }
 }

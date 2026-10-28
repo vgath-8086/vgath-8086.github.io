@@ -3,7 +3,7 @@ import type { CompilerResult } from '@emu8086/compiler';
 
 type FinalViewLine = NonNullable<CompilerResult['finalView']>[number];
 
-export function useSourceHighlight(finalView: FinalViewLine[], currentAddr: number) {
+export function useSourceHighlight(finalView: FinalViewLine[], currentAddr: number, csNum: number = 0) {
   const addrMap = useMemo(() => {
     const map = new Map<number, number>();
     for (const line of finalView) {
@@ -14,7 +14,8 @@ export function useSourceHighlight(finalView: FinalViewLine[], currentAddr: numb
     return map;
   }, [finalView]);
 
-  const currentLineIdx = addrMap.get(currentAddr) ?? -1;
+  const phys = (csNum << 4) + currentAddr;
+  const currentLineIdx = addrMap.get(phys) ?? addrMap.get(currentAddr) ?? -1;
 
   return { addrMap, currentLineIdx };
 }

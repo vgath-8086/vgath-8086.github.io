@@ -28,6 +28,15 @@ export interface LoadableProgram {
   origin: number;
   /** Executable instructions to write into RAM */
   instructions: ReadonlyArray<{ addr: number; opcodes: ReadonlyArray<number> }>;
+  /** Optional initial register values (e.g. for MASM segmented programs) */
+  initialRegs?: {
+    cs?: number;
+    ip?: number;
+    ss?: number;
+    sp?: number;
+    ds?: number;
+    es?: number;
+  };
 }
 
 /** A single RAM byte change recorded during execution, used for step-back. */
@@ -144,12 +153,28 @@ export class EmulatorController {
   private _resetState(): void {
     this.processor.resetRegisters();
     this.processor.resetMemory();
+    this.processor.resetHalt();
     this._t = 0;
     this._regStatesManager = [];
     this._ramStatesManager = [[]];
     this._updateRegState();
     this.processor.cnsl.resetState();
     this._initDefaultRegisters();
+  }
+
+  private _applyInitialRegisters(program: LoadableProgram): void {
+    if (program.initialRegs) {
+      if (program.initialRegs.cs !== undefined) this.processor.register.writeReg(CS_REG, program.initialRegs.cs);
+      if (program.initialRegs.ip !== undefined) this.processor.register.writeReg(IP_REG, program.initialRegs.ip);
+      else this.processor.register.writeReg(IP_REG, program.origin);
+      if (program.initialRegs.ss !== undefined) this.processor.register.writeReg(SS_REG, program.initialRegs.ss);
+      if (program.initialRegs.sp !== undefined) this.processor.register.writeReg(SP_REG, program.initialRegs.sp);
+      if (program.initialRegs.ds !== undefined) this.processor.register.writeReg(DS_REG, program.initialRegs.ds);
+      if (program.initialRegs.es !== undefined) this.processor.register.writeReg(ES_REG, program.initialRegs.es);
+    } else {
+      this.processor.register.writeReg(IP_REG, program.origin);
+    }
+    this._updateRegState();
   }
 
   private _writeProgram(instructions: LoadableProgram['instructions']): void {
@@ -164,7 +189,7 @@ export class EmulatorController {
   loadProgram(program: LoadableProgram): void {
     this._loadedProgram = program;
     this._resetState();
-    this.processor.register.writeReg(IP_REG, program.origin);
+    this._applyInitialRegisters(program);
     this._writeProgram(program.instructions);
     this._compiled = true;
   }
@@ -172,7 +197,7 @@ export class EmulatorController {
   reset(): void {
     if (!this._loadedProgram) return;
     this._resetState();
-    this.processor.register.writeReg(IP_REG, this._loadedProgram.origin);
+    this._applyInitialRegisters(this._loadedProgram);
     this._writeProgram(this._loadedProgram.instructions);
   }
 
@@ -197,7 +222,7 @@ export class EmulatorController {
 
     const ip = this.processor.register.readReg(IP_REG);
     const sp = this.processor.register.readReg(SP_REG);
-    if (ip === 0xfffe && sp === 0) {
+    if ((ip === 0xfffe && sp === 0) || this.processor.isHalted) {
       return { done: true, endReason: ExecutionStopReason.SUCCESS };
     }
     return { done: false };
@@ -206,6 +231,7 @@ export class EmulatorController {
   stepBack(): { success: boolean } {
     if (this._t <= 0) return { success: false };
 
+    this.processor.resetHalt();
     this.processor.cnsl.cursorRam = this._consoleStateManager[this._t - 1].cursorRam;
     this.processor.cnsl.cursor = this._consoleStateManager[this._t - 1].cursor;
 

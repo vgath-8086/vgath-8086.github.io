@@ -1,6 +1,6 @@
 import type { IInstructionHandler } from '../interfaces/i-instruction-handler.js';
 import type { CpuContext } from '../cpu/cpu-context.js';
-import { AX_REG, BX_REG, DX_REG } from '../constants.js';
+import { AX_REG, BX_REG, DX_REG, DS_REG } from '../constants.js';
 import { INT } from '../opcodes.js';
 
 export class InterruptHandler implements IInstructionHandler {
@@ -16,19 +16,22 @@ export class InterruptHandler implements IInstructionHandler {
     if (secondByte === 0x21) {
       const ah = (ctx.reg.readReg(AX_REG) & 0xFF00) >> 8;
 
-      if (ah === 0x01) {
+      if (ah === 0x4C) {
+        ctx.halted = true;
+      } else if (ah === 0x01) {
         ctx.cnsl.readChar();
         ctx.int21_01 = true;
       } else if (ah === 0x02) {
         const ch = String.fromCharCode(ctx.reg.readReg(DX_REG) & 0x00FF);
         ctx.cnsl.writeChar(ch);
       } else if (ah === 0x09) {
+        const ds = ctx.reg.readReg(DS_REG);
         let addr = ctx.reg.readReg(DX_REG);
-        let val = ctx.ram.readByte(addr);
+        let val = ctx.ram.readByte((ds << 4) + addr);
         while (val !== 36) { // '$'
           ctx.cnsl.writeChar(String.fromCharCode(val));
           addr++;
-          val = ctx.ram.readByte(addr);
+          val = ctx.ram.readByte((ds << 4) + addr);
         }
       } else if (ah === 0x0A) {
         ctx.cnsl.readChar();

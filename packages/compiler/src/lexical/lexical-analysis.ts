@@ -1,10 +1,10 @@
-import type { LexicalLine, Operand, VariableClass, LexicalAnalysisResult } from '../types.js';
+import type { LexicalLine, Operand, VariableClass, LexicalAnalysisResult, OperandType } from '../types.js';
 import { OperandClassifier, WORD_REGISTERS, BYTE_REGISTERS, SEGMENT_REGISTERS, ALL_REGISTERS, INSTRUCTIONS } from './operand-classifier.js';
 import { MemoryValidator } from './memory-validator.js';
 import { CompilerErrorCode } from '../error-codes.js';
 
-const KEYWORDS    = ['MACRO', 'PROC'];
-const PRE_PRO_INS = ['ORG', 'DEFINE', 'EQU', 'PROC', 'LOCAL', 'ENDM', 'ENDP', 'OFFSET'];
+const KEYWORDS    = ['MACRO', 'PROC', 'SEGMENT', 'ENDS', 'ASSUME', 'END', 'EQU'];
+const PRE_PRO_INS = ['ORG', 'DEFINE', 'EQU', 'PROC', 'LOCAL', 'ENDM', 'ENDP', 'OFFSET', 'SEGMENT', 'ENDS', 'ASSUME', 'END', 'TITLE', '.MODEL', '.STACK', '.DATA', '.CODE'];
 const STRING_INSTRUCTIONS = ['MOVSB', 'CMPSB', 'SCASB', 'LODSB', 'STOSB', 'MOVSW', 'CMPSW', 'SCASW', 'LODSW', 'STOSW'];
 
 export class LexicalAnalysis {
@@ -57,7 +57,13 @@ export class LexicalAnalysis {
       }
     }
 
-    if      (this.lexical.good && this.tryParseMacroDefinition(str))  this.parseMacroParameters(str);
+    if (str.trim() === '') {
+      this.lexical.expressionType = 'NULL';
+      return { ...this.lexical };
+    }
+
+    if      (this.lexical.good && this.tryParseMasmDirectives(str))   { /* handled */ }
+    else if (this.lexical.good && this.tryParseMacroDefinition(str))  this.parseMacroParameters(str);
     else if (this.lexical.good && this.tryParseVariable(str))         this.parseVariableOperands(str);
     else if (this.lexical.good && this.tryParseInstruction(str))      this.lexical.good = this.parseInstructionOperands(str);
     else if (this.lexical.good)                                       this.parseMacroCallOperands(str);
@@ -65,13 +71,149 @@ export class LexicalAnalysis {
     return { ...this.lexical };
   }
 
+  // ── MASM Directives ───────────────────────────────────────────────────────
+
+  private tryParseMasmDirectives(str: string): boolean {
+    const trimmed = str.trim();
+    if (!trimmed) return false;
+    const tokens = trimmed.split(/\s+/);
+    const tok0 = (tokens[0] || '').toUpperCase();
+    const tok1 = (tokens[1] || '').toUpperCase();
+
+    // TITLE directive
+    if (tok0 === 'TITLE') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = 'TITLE';
+      return true;
+    }
+
+    // Simplified segment directives: .MODEL, .STACK, .DATA, .CODE
+    if (tok0 === '.MODEL') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = '.MODEL';
+      return true;
+    }
+    if (tok0 === '.STACK') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = '.STACK';
+      if (tokens[1]) {
+        this.lexical.operands = [{ name: tokens[1].toUpperCase(), type: 'INT' }];
+      }
+      return true;
+    }
+    if (tok0 === '.DATA') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = '.DATA';
+      return true;
+    }
+    if (tok0 === '.CODE') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = '.CODE';
+      return true;
+    }
+
+    // <name> SEGMENT [attrs...]
+    if (tokens.length >= 2 && tok1 === 'SEGMENT') {
+      if (this.isLegalName(tokens[0])) {
+        this.lexical.expressionType = 'INST';
+        this.lexical.instructionType = 'prePropIns';
+        this.lexical.instName = 'SEGMENT';
+        this.lexical.operands = [
+          { name: tokens[0].toUpperCase(), type: 'SEG' },
+          ...tokens.slice(2).map(t => ({ name: t.replace(/['"]/g, '').toUpperCase(), type: 'VAR' as OperandType })),
+        ];
+        return true;
+      }
+    }
+
+    // <name> ENDS or standalone ENDS
+    if (tok0 === 'ENDS') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = 'ENDS';
+      return true;
+    }
+    if (tokens.length >= 2 && tok1 === 'ENDS') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = 'ENDS';
+      this.lexical.operands = [{ name: tokens[0].toUpperCase(), type: 'SEG' }];
+      return true;
+    }
+
+    // ASSUME CS:CODE, DS:DATA, ...
+    if (tok0 === 'ASSUME') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = 'ASSUME';
+      const rest = trimmed.slice(tokens[0].length).trim();
+      const parts = rest.split(',').map(p => p.trim()).filter(Boolean);
+      this.lexical.operands = parts.map(p => ({ name: p.toUpperCase(), type: 'VAR' as OperandType }));
+      return true;
+    }
+
+    // <name> PROC [NEAR|FAR]
+    if (tokens.length >= 2 && tok1 === 'PROC') {
+      if (this.isLegalName(tokens[0])) {
+        this.lexical.expressionType = 'INST';
+        this.lexical.instructionType = 'prePropIns';
+        this.lexical.instName = 'PROC';
+        this.lexical.operands = [{ name: tokens[0].toUpperCase(), type: 'VAR' }];
+        return true;
+      }
+    }
+
+    // <name> ENDP
+    if (tokens.length >= 2 && tok1 === 'ENDP') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = 'ENDP';
+      this.lexical.operands = [{ name: tokens[0].toUpperCase(), type: 'VAR' }];
+      return true;
+    }
+
+    // END [entry_label]
+    if (tok0 === 'END') {
+      this.lexical.expressionType = 'INST';
+      this.lexical.instructionType = 'prePropIns';
+      this.lexical.instName = 'END';
+      if (tokens[1]) {
+        this.lexical.operands = [{ name: tokens[1].toUpperCase(), type: 'VAR' }];
+      }
+      return true;
+    }
+
+    // <name> EQU <value>
+    if (tokens.length >= 3 && tok1 === 'EQU') {
+      if (this.isLegalName(tokens[0])) {
+        this.lexical.expressionType = 'INST';
+        this.lexical.instructionType = 'prePropIns';
+        this.lexical.instName = 'EQU';
+        const val = tokens.slice(2).join(' ').trim();
+        this.lexical.operands = [
+          { name: tokens[0].toUpperCase(), type: 'VAR' },
+          { name: val.toUpperCase(), type: 'INT' },
+        ];
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   // ── Name / token validation ───────────────────────────────────────────────
 
   private isLegalName(str: string): boolean {
     str = str.toUpperCase().trim();
     return !(
-      KEYWORDS.includes(str) || str === '' || /\W/.test(str) || /^\d|^\-\-/.test(str) ||
-      INSTRUCTIONS.includes(str) || WORD_REGISTERS.includes(str) || BYTE_REGISTERS.includes(str)
+      KEYWORDS.includes(str) || str === '' || /[^A-Z0-9_@]/.test(str) || /^\d|^\-\-/.test(str) ||
+      INSTRUCTIONS.includes(str) || WORD_REGISTERS.includes(str) || BYTE_REGISTERS.includes(str) ||
+      SEGMENT_REGISTERS.includes(str)
     );
   }
 
@@ -90,14 +232,14 @@ export class LexicalAnalysis {
     // column alignment with neighbouring declarations).
     const arr = str.toUpperCase().trim().split(/\s+/);
 
-    if (arr[0] === 'DB' || arr[0] === 'DW') {
+    if (arr[0] === 'DB' || arr[0] === 'DW' || arr[0] === 'DD') {
       this.lexical.expressionType = 'VAR';
       this.lexical.variableClass  = arr[0] as VariableClass;
       this.lexical.variableName   = null;
       return true;
     }
 
-    if (arr[1] === 'DB' || arr[1] === 'DW') {
+    if (arr[1] === 'DB' || arr[1] === 'DW' || arr[1] === 'DD') {
       if (this.classifier.isLegalVarName(arr[0])) {
         this.lexical.variableName  = arr[0];
         this.lexical.variableClass = arr[1] as VariableClass;
@@ -121,6 +263,8 @@ export class LexicalAnalysis {
         this.lexical.good    = false;
         this.lexical.message = CompilerErrorCode.WRONG_VARIABLE_VALUE;
         return;
+      } else if (el === '?') {
+        this.lexical.operands.push({ name: '0', type: 'INT' });
       } else if (/^"/.test(el) || /^'/.test(el)) {
         if (/(^").*("$)/.test(el) || /(^').*('$)/.test(el)) {
           // Preserve the literal's original case — only the surrounding assembly
@@ -266,7 +410,12 @@ export class LexicalAnalysis {
 
     const operands = /,/.test(str2) ? str2.split(',') : [str2];
     if (operands[0] !== '') {
-      for (const raw of operands) {
+      for (let raw of operands) {
+        raw = raw.trim().replace(/\bptr\b/ig, '').trim();
+        const varInBracket = raw.match(/^\[\s*([a-zA-Z_]\w*)\s*\]$/);
+        if (varInBracket && this.classifier.isLegalVarName(varInBracket[1])) {
+          raw = varInBracket[1];
+        }
         const result = this.classifier.isValid(raw);
         if (!result.ok) {
           this.lexical.message = result.message || null;
@@ -378,7 +527,7 @@ export class LexicalAnalysis {
     let current  = ' ';
     const arr: string[] = [];
 
-    const dbdwMatch = str.match(/db|dw/i);
+    const dbdwMatch = str.match(/\b(db|dw|dd)\b/i);
     if (dbdwMatch === null) return arr;
     str = str.substring(str.indexOf(dbdwMatch[0]) + 3).trim();
 

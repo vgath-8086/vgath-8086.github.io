@@ -9,6 +9,11 @@ export function generateVariable(line: LexicalLine): number[] {
       const v = parseInt(op.name);
       if (varType === 'DB' || varType === 'DU') {
         bytes.push(v & 0xFF);
+      } else if (varType === 'DD') {
+        bytes.push(v & 0xFF);
+        bytes.push((v >> 8) & 0xFF);
+        bytes.push((v >> 16) & 0xFF);
+        bytes.push((v >> 24) & 0xFF);
       } else {
         bytes.push(v & 0xFF);
         bytes.push((v >> 8) & 0xFF);

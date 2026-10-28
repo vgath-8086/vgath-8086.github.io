@@ -12,5 +12,6 @@ export function toLoadableProgram(result: CompilerResult): LoadableProgram | nul
     instructions: result.finalView
       .filter((l: FinalViewLine) => l.executableLine)
       .map((l: FinalViewLine) => ({ addr: l.instructionAddr, opcodes: l.opcodes })),
+    initialRegs: result.initialRegs,
   };
 }
